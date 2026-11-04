@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if refresh %}<meta http-equiv="refresh" content="4">{% endif %}
+  <title>{% block title %}LexIntake review{% endblock %}</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 2rem auto; padding: 0 1rem; color: #1b1f24; }
+    a { color: #0b57d0; }
+    h1 a { color: inherit; text-decoration: none; }
+    table { border-collapse: collapse; width: 100%; margin: 0.5rem 0 1.5rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #d9dde3; vertical-align: top; }
+    th { font-size: 0.85rem; color: #57606a; }
+    .box { border: 1px solid #d9dde3; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; }
+    .pill { display: inline-block; padding: 0 0.6rem; border-radius: 1rem; font-size: 0.85rem; background: #eef1f5; }
+    .pill.auto_approved, .pill.approved { background: #d7f0dd; }
+    .pill.pending_review { background: #fff0c2; }
+    .pill.rejected, .pill.failed, .pill.expired { background: #f7d4d4; }
+    .error { background: #f7d4d4; padding: 0.6rem 1rem; border-radius: 6px; }
+    .muted { color: #57606a; }
+    blockquote { margin: 0; color: #3a424a; }
+    button { font: inherit; padding: 0.4rem 1rem; cursor: pointer; }
+    form.inline { display: inline; }
+  </style>
+</head>
+<body>
+  <h1><a href="/">LexIntake review</a></h1>
+  {% block body %}{% endblock %}
+</body>
+</html>

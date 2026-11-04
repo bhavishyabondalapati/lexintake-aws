@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="box">
+  <h2>Upload a document</h2>
+  <p class="muted">PDF only, up to {{ max_mb }} MB. The file goes straight to S3 and the workflow starts by itself.</p>
+  <form id="upload">
+    <input type="file" id="file" accept="application/pdf,.pdf" required>
+    <button type="submit">Upload</button>
+  </form>
+  <p id="message"></p>
+</div>
+
+<h2>Waiting for review ({{ pending|length }})</h2>
+{% if pending %}
+<table>
+  <tr><th>Uploaded</th><th>Type</th><th>Confidence</th><th>Risk</th><th>Why it needs a person</th><th></th></tr>
+  {% for d in pending %}
+  <tr>
+    <td>{{ d.created_at[:19]|replace("T", " ") }}</td>
+    <td>{{ d.doc_type or "?" }}</td>
+    <td>{{ d.confidence or "?" }}</td>
+    <td>{{ d.risk or "?" }}</td>
+    <td>{{ d.reasons|join(", ") if d.reasons else "" }}</td>
+    <td>
+      <a href="/doc/{{ d.doc_id }}">Open</a>
+      <form class="inline" method="post" action="/doc/{{ d.doc_id }}/approve"><button>Approve</button></form>
+      <form class="inline" method="post" action="/doc/{{ d.doc_id }}/reject"><button>Reject</button></form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Nothing is waiting.</p>
+{% endif %}
+
+<script>
+document.getElementById("upload").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = document.getElementById("message");
+  const file = document.getElementById("file").files[0];
+  if (!file) return;
+  message.textContent = "Uploading...";
+  try {
+    // 1. ask the app for a presigned form (it also enforces the size and daily limits)
+    const r = await fetch("/api/presign", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({filename: file.name, size: file.size}),
+    });
+    const presigned = await r.json();
+    if (!r.ok) { message.textContent = presigned.error; return; }
+    // 2. send the file straight to S3 (the file field must come last)
+    const form = new FormData();
+    Object.entries(presigned.fields).forEach(([k, v]) => form.append(k, v));
+    form.append("file", file);
+    const up = await fetch(presigned.url, {method: "POST", body: form});
+    if (!up.ok) { message.textContent = "S3 rejected the upload (" + up.status + ")."; return; }
+    window.location = "/doc/" + presigned.doc_id;
+  } catch (e) {
+    message.textContent = "Upload failed: " + e;
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block body %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+{% if not doc %}
+  <p>No record for <code>{{ doc_id }}</code> yet. If you just uploaded it, the workflow is starting; this page refreshes by itself.</p>
+  <meta http-equiv="refresh" content="3">
+{% else %}
+  <h2>Document <code>{{ doc.doc_id }}</code> <span class="pill {{ doc.status }}">{{ doc.status }}</span></h2>
+  {% if doc.status == "processing" %}<p class="muted">Processing. This page refreshes by itself.</p>{% endif %}
+  {% if doc.status == "failed" %}<p class="error">The workflow failed ({{ doc.error }}). The document is in the dead-letter queue.</p>{% endif %}
+
+  <table>
+    <tr><th>Type</th><th>Confidence</th><th>Risk</th><th>Input tokens</th><th>Output tokens</th></tr>
+    <tr>
+      <td>{{ doc.doc_type or "-" }}</td><td>{{ doc.confidence or "-" }}</td><td>{{ doc.risk or "-" }}</td>
+      <td>{{ doc.input_tokens or "-" }}</td><td>{{ doc.output_tokens or "-" }}</td>
+    </tr>
+  </table>
+
+  {% if pdf_url %}<p><a href="{{ pdf_url }}" target="_blank" rel="noopener">Open the PDF</a> (link works for 5 minutes)</p>{% endif %}
+
+  {% if doc.status == "pending_review" %}
+  <div class="box">
+    <strong>This document needs a decision.</strong>
+    <form class="inline" method="post" action="/doc/{{ doc.doc_id }}/approve"><button>Approve</button></form>
+    <form class="inline" method="post" action="/doc/{{ doc.doc_id }}/reject"><button>Reject</button></form>
+  </div>
+  {% elif doc.decided_by %}
+  <p class="muted">Decided by {{ doc.decided_by }} at {{ doc.decided_at }}.</p>
+  {% endif %}
+
+  {% if score %}
+    <h3>Why ({{ score.reasons|length }})</h3>
+    {% if score.reasons %}
+    <table>
+      <tr><th>Reason</th><th>Field</th><th>Detail</th></tr>
+      {% for r in score.reasons %}
+      <tr><td>{{ r.code }}</td><td>{{ r.field or "" }}</td><td>{{ r.detail }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">No reasons: every check passed.</p>{% endif %}
+
+    {% if score.playbook %}
+    <h3>Playbook</h3>
+    <table>
+      <tr><th>Rule</th><th>Result</th><th>Detail</th></tr>
+      {% for p in score.playbook %}
+      <tr><td>{{ p.label }}</td><td>{{ p.outcome }}</td><td>{{ p.reason }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+
+    {% if score.checks %}
+    <h3>Extracted fields and evidence</h3>
+    <table>
+      <tr><th>Field</th><th>Value</th><th>Check</th><th>Conf.</th><th>Evidence (page)</th></tr>
+      {% for c in score.checks %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>{{ "" if c.value is none else c.value }}</td>
+        <td>{{ c.status }}</td>
+        <td>{{ c.confidence }}</td>
+        <td>{% if c.quote %}<blockquote>{{ c.quote }}</blockquote> <span class="muted">p. {{ c.page }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}

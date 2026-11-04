@@ -1,0 +1,18 @@
+[Unit]
+Description=LexIntake review app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=review
+WorkingDirectory=/opt/lexintake-review
+EnvironmentFile=/etc/lexintake-review.env
+ExecStart=/opt/lexintake-review/venv/bin/uvicorn --factory main:app_factory --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
