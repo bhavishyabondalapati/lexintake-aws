@@ -8,7 +8,7 @@ from tests.conftest import ROOT
 
 VALUES = {
     "table_name": "table",
-    "dlq_url": "https://sqs.us-east-1.amazonaws.com/123456789012/dlq",
+    "dlq_url": "https://sqs.us-east-2.amazonaws.com/123456789012/dlq",
     "parse_arn": "arn:parse",
     "extract_arn": "arn:extract",
     "score_arn": "arn:score",

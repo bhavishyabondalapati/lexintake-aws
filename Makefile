@@ -6,7 +6,7 @@ CONDA_PY = conda run --no-capture-output -n $(notdir $(CURDIR))
 
 # Terraform can't read `aws login` credentials directly, so export them as environment variables
 # for the duration of each command. Run `aws login --profile sky` first (credentials last 12 hours).
-AWS_ENV = eval "$$(aws configure export-credentials --profile $(PROFILE) --format env)" && export AWS_REGION=us-east-1
+AWS_ENV = eval "$$(aws configure export-credentials --profile $(PROFILE) --format env)" && export AWS_REGION=us-east-2
 
 .PHONY: init fmt validate plan deploy destroy build test sample review
 
