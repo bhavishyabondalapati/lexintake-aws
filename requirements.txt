@@ -1,0 +1,6 @@
+# Dev and test dependencies (the Lambdas' own packages are in src/<function>/requirements.txt).
+-r src/parse/requirements.txt
+-r src/extract/requirements.txt
+-r src/score/requirements.txt
+boto3>=1.35
+pytest>=8.3
