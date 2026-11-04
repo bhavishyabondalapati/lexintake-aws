@@ -13,3 +13,7 @@ output "dlq_url" {
 output "anthropic_key_parameter" {
   value = aws_ssm_parameter.anthropic_api_key.name
 }
+
+output "state_machine_arn" {
+  value = aws_sfn_state_machine.pipeline.arn
+}

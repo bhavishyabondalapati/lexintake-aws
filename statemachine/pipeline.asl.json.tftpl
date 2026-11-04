@@ -1,0 +1,296 @@
+{
+  "Comment": "LexIntake AWS: parse -> extract -> score -> auto-approve or wait for a human",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Comment": "doc_id is the folder name in uploads/<doc_id>/<file>.pdf",
+      "Parameters": {
+        "bucket.$": "$.bucket",
+        "key.$": "$.key",
+        "doc_id.$": "States.ArrayGetItem(States.StringSplit($.key, '/'), 1)"
+      },
+      "Next": "CreateRecord"
+    },
+
+    "CreateRecord": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, created_at = :t, s3_key = :k REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "processing" },
+          ":t": { "S.$": "$$.State.EnteredTime" },
+          ":k": { "S.$": "$.key" }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["DynamoDB.ProvisionedThroughputExceededException", "DynamoDB.InternalServerErrorException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "ParseDocument"
+    },
+
+    "ParseDocument": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${parse_arn}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": { "parse.$": "$.Payload" },
+      "ResultPath": "$.parse",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "TransientError"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "ExtractFields"
+    },
+
+    "ExtractFields": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${extract_arn}",
+        "Payload": {
+          "doc_id.$": "$.doc_id",
+          "bucket.$": "$.bucket",
+          "parsed_key.$": "$.parse.parse.parsed_key"
+        }
+      },
+      "ResultSelector": { "extract.$": "$.Payload" },
+      "ResultPath": "$.extract",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "TransientError"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2.0,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "ScoreDocument"
+    },
+
+    "ScoreDocument": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${score_arn}",
+        "Payload": {
+          "doc_id.$": "$.doc_id",
+          "bucket.$": "$.bucket",
+          "parsed_key.$": "$.parse.parse.parsed_key",
+          "extraction_key.$": "$.extract.extract.extraction_key"
+        }
+      },
+      "ResultSelector": { "score.$": "$.Payload" },
+      "ResultPath": "$.score",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "TransientError"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "SaveScore"
+    },
+
+    "SaveScore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET doc_type = :dt, confidence = :c, risk = :r, reasons = :rs, score_key = :sk, extraction_key = :ek, input_tokens = :it, output_tokens = :ot",
+        "ExpressionAttributeValues": {
+          ":dt": { "S.$": "$.score.score.doc_type" },
+          ":c": { "N.$": "States.JsonToString($.score.score.confidence)" },
+          ":r": { "S.$": "$.score.score.risk" },
+          ":rs": { "S.$": "States.JsonToString($.score.score.reasons)" },
+          ":sk": { "S.$": "$.score.score.score_key" },
+          ":ek": { "S.$": "$.extract.extract.extraction_key" },
+          ":it": { "N.$": "States.JsonToString($.extract.extract.input_tokens)" },
+          ":ot": { "N.$": "States.JsonToString($.extract.extract.output_tokens)" }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["DynamoDB.ProvisionedThroughputExceededException", "DynamoDB.InternalServerErrorException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "IsAutoApprove"
+    },
+
+    "IsAutoApprove": {
+      "Type": "Choice",
+      "Comment": "High confidence AND low risk AND no reason for review -> auto-approve. Anything else -> a person.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.score.score.confidence", "NumericGreaterThanEquals": 0.8 },
+            { "Variable": "$.score.score.risk", "StringEquals": "low" },
+            { "Variable": "$.score.score.reason_count", "NumericEquals": 0 }
+          ],
+          "Next": "WriteAutoApproved"
+        }
+      ],
+      "Default": "RequestHumanReview"
+    },
+
+    "RequestHumanReview": {
+      "Type": "Task",
+      "Comment": "Pauses here until the review app calls SendTaskSuccess or SendTaskFailure with the token stored in DynamoDB.",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${review_request_arn}",
+        "Payload": {
+          "doc_id.$": "$.doc_id",
+          "task_token.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.review",
+      "TimeoutSeconds": 604800,
+      "Catch": [
+        { "ErrorEquals": ["ReviewRejected"], "ResultPath": "$.review", "Next": "WriteRejected" },
+        { "ErrorEquals": ["States.Timeout"], "ResultPath": "$.review", "Next": "WriteExpired" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }
+      ],
+      "Next": "WriteApproved"
+    },
+
+    "WriteAutoApproved": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, decided_at = :t, decided_by = :b REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "auto_approved" },
+          ":t": { "S.$": "$$.State.EnteredTime" },
+          ":b": { "S": "system" }
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "Done"
+    },
+
+    "WriteApproved": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, decided_at = :t, decided_by = :b REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "approved" },
+          ":t": { "S.$": "$$.State.EnteredTime" },
+          ":b": { "S": "reviewer" }
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "Done"
+    },
+
+    "WriteRejected": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, decided_at = :t, decided_by = :b REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "rejected" },
+          ":t": { "S.$": "$$.State.EnteredTime" },
+          ":b": { "S": "reviewer" }
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "Done"
+    },
+
+    "WriteExpired": {
+      "Type": "Task",
+      "Comment": "Nobody reviewed it within 7 days.",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, decided_at = :t, decided_by = :b REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "expired" },
+          ":t": { "S.$": "$$.State.EnteredTime" },
+          ":b": { "S": "system" }
+        }
+      },
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "HandleFailure" }],
+      "Next": "Done"
+    },
+
+    "Done": { "Type": "Succeed" },
+
+    "HandleFailure": {
+      "Type": "Task",
+      "Comment": "Dead-letter queue: keep the document id, the error and what the workflow knew so far.",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "${dlq_url}",
+        "MessageBody.$": "States.JsonToString($)"
+      },
+      "ResultPath": null,
+      "Next": "MarkFailed"
+    },
+
+    "MarkFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${table_name}",
+        "Key": { "doc_id": { "S.$": "$.doc_id" } },
+        "UpdateExpression": "SET #s = :s, error = :e REMOVE task_token",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "failed" },
+          ":e": { "S.$": "$.error.Error" }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ProcessingFailed",
+      "Cause": "A step failed after its retries. See the dead-letter queue."
+    }
+  }
+}

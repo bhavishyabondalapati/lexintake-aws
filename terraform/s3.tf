@@ -39,6 +39,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "docs" {
       days = 30
     }
   }
+
+  # The parsed text of a document is only needed while it is being processed or reviewed.
+  rule {
+    id     = "expire-parsed"
+    status = "Enabled"
+    filter {
+      prefix = "parsed/"
+    }
+    expiration {
+      days = 30
+    }
+  }
 }
 
 # Send every S3 event to EventBridge. An EventBridge rule (Phase 2) filters for new
