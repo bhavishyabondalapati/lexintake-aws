@@ -29,3 +29,7 @@ for fn in "${FUNCTIONS[@]}"; do
   find "$out" -name '*.pyc' -delete
   echo "built $out ($(du -sh "$out" | cut -f1))"
 done
+
+# Same bytes in, same zip out: without this, every build changes the files' timestamps, Terraform
+# sees a "new" package and re-uploads all the Lambdas on every deploy.
+find build -exec touch -t 202001010000 {} +
