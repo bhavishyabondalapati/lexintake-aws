@@ -17,3 +17,8 @@ output "anthropic_key_parameter" {
 output "state_machine_arn" {
   value = aws_sfn_state_machine.pipeline.arn
 }
+
+output "review_app_url" {
+  description = "Open this in a browser (only from the IP you deployed from)."
+  value       = "http://${aws_instance.review.public_ip}:8000"
+}

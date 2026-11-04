@@ -6,7 +6,10 @@ CONDA_PY = conda run --no-capture-output -n $(notdir $(CURDIR))
 
 # Terraform can't read `aws login` credentials directly, so export them as environment variables
 # for the duration of each command. Run `aws login --profile sky` first (credentials last 12 hours).
-AWS_ENV = eval "$$(aws configure export-credentials --profile $(PROFILE) --format env)" && export AWS_REGION=us-east-2
+#
+# The review app accepts connections only from your current public IP (override: MY_IP_CIDR=1.2.3.4/32).
+MY_IP_CIDR ?= $(shell curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')/32
+AWS_ENV = eval "$$(aws configure export-credentials --profile $(PROFILE) --format env)" && export AWS_REGION=us-east-2 TF_VAR_my_ip_cidr=$(MY_IP_CIDR)
 
 .PHONY: init fmt validate plan deploy destroy build test sample review
 

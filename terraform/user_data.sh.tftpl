@@ -1,0 +1,28 @@
+#!/bin/bash
+# First-boot setup of the review app. app version: ${app_hash}
+set -euxo pipefail
+
+dnf install -y python3.12 python3.12-pip unzip
+
+useradd --system --home-dir /opt/lexintake-review --shell /sbin/nologin review || true
+mkdir -p /opt/lexintake-review
+aws s3 cp "s3://${bucket}/${app_key}" /tmp/review_app.zip --region ${region}
+unzip -o /tmp/review_app.zip -d /opt/lexintake-review
+
+python3.12 -m venv /opt/lexintake-review/venv
+/opt/lexintake-review/venv/bin/pip install --no-cache-dir -r /opt/lexintake-review/requirements.txt
+chown -R review:review /opt/lexintake-review
+
+# Settings only, no secrets: AWS credentials come from the instance role.
+cat > /etc/lexintake-review.env <<ENV
+AWS_REGION=${region}
+BUCKET=${bucket}
+TABLE=${table}
+MAX_UPLOAD_BYTES=${max_upload_bytes}
+DAILY_DOC_LIMIT=${daily_doc_limit}
+ENV
+chmod 644 /etc/lexintake-review.env
+
+cp /opt/lexintake-review/lexintake-review.service /etc/systemd/system/lexintake-review.service
+systemctl daemon-reload
+systemctl enable --now lexintake-review
