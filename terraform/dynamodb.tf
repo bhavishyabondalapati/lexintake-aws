@@ -27,9 +27,15 @@ resource "aws_dynamodb_table" "documents" {
   # status = "pending_review" to list documents waiting for a person. Items without a
   # status (the counters) are simply not in the index.
   global_secondary_index {
-    name            = "status-index"
-    hash_key        = "status"
-    range_key       = "created_at"
+    name = "status-index"
+    key_schema {
+      attribute_name = "status"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "created_at"
+      key_type       = "RANGE"
+    }
     projection_type = "ALL"
   }
 
