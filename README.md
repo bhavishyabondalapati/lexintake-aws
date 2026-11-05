@@ -1,5 +1,7 @@
 # LexIntake AWS
 
+[![CI](https://github.com/bhavishyabondalapati/lexintake-aws/actions/workflows/ci.yml/badge.svg)](https://github.com/bhavishyabondalapati/lexintake-aws/actions/workflows/ci.yml)
+
 An event-driven AWS version of [LexIntake](https://github.com/bhavishyabondalapati/lexintake), a legal-document intake pipeline. Upload an NDA as a PDF and the system reads it, classifies it, extracts the key clauses with quotes as evidence, checks them against a playbook of the legal team's standard positions, and either **auto-approves** it or **pauses for a human** to approve or reject. Everything is Terraform, and it runs for cents at demo volume.
 
 This is an independent portfolio project. It is not affiliated with any firm and uses only synthetic documents.
